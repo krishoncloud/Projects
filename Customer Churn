@@ -1,0 +1,114 @@
+#import necessary libraries
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from imblearn.over_sampling import SMOTE
+from sklearn.feature_selection import RFE
+from sklearn.impute import SimpleImputer
+
+# Step 1: Load and preprocess the dataset
+file_path = '/content/Telco Customer Churn dataset.csv'
+data = pd.read_csv(file_path)
+
+# Handle missing values
+data['TotalCharges'] = pd.to_numeric(data['TotalCharges'], errors='coerce')
+imputer = SimpleImputer(strategy='mean')
+data['TotalCharges'] = imputer.fit_transform(data[['TotalCharges']])
+# SimpleImputer is initialized with a strategy (like 'mean'), but it doesn't yet know what the mean is.
+# fit() tells the imputer to compute the statistic (mean, median, etc.) from the data.
+# transform() actually fills in the missing values with the computed statistic.
+
+# Feature engineering
+# Replace infinite values with a large finite value
+data['MonthlyCharges_to_TotalCharges_ratio'] = data['MonthlyCharges'] / data['TotalCharges']
+data['MonthlyCharges_to_TotalCharges_ratio'].replace([np.inf, -np.inf], np.nan, inplace=True)  # Replace inf with NaN
+data['MonthlyCharges_to_TotalCharges_ratio'].fillna(data['MonthlyCharges_to_TotalCharges_ratio'].max(), inplace=True)  # Replace NaN with max value
+
+data['Tenure_to_MonthlyCharges_ratio'] = data['tenure'] / data['MonthlyCharges']
+data['Tenure_to_MonthlyCharges_ratio'].replace([np.inf, -np.inf], np.nan, inplace=True)
+data['Tenure_to_MonthlyCharges_ratio'].fillna(data['Tenure_to_MonthlyCharges_ratio'].max(), inplace=True)
+
+data['AvgMonthlyCharges'] = data['TotalCharges'] / data['tenure']
+data['AvgMonthlyCharges'].replace([np.inf, -np.inf], np.nan, inplace=True)
+data['AvgMonthlyCharges'].fillna(data['AvgMonthlyCharges'].max(), inplace=True)
+
+data['TotalServices'] = (data[['PhoneService', 'InternetService', 'OnlineSecurity', 'OnlineBackup',
+                               'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies']] == 'Yes').sum(axis=1)
+
+# Encode categorical variables
+categorical_columns = ['gender', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines', 'InternetService',
+                       'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV',
+                       'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod']
+
+for col in categorical_columns:
+    data[col] = pd.Categorical(data[col]).codes
+
+# Convert target variable
+data['Churn'] = data['Churn'].map({'Yes': 1, 'No': 0})
+
+# Drop unnecessary columns
+data = data.drop(['customerID'], axis=1)
+
+# Step 2: Split the data
+X = data.drop('Churn', axis=1)
+y = data['Churn']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# Step 3: Feature scaling
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Step 4: Apply SMOTE for class imbalance
+smote = SMOTE(random_state=42)
+X_train_resampled, y_train_resampled = smote.fit_resample(X_train_scaled, y_train)
+
+# Step 5: Feature selection using Recursive Feature Elimination
+rfe = RFE(estimator=RandomForestClassifier(random_state=42), n_features_to_select=15)
+X_train_rfe = rfe.fit_transform(X_train_resampled, y_train_resampled)
+X_test_rfe = rfe.transform(X_test_scaled)
+
+# Step 6: Random Forest Model with Hyperparameter Tuning
+param_dist = {
+    'n_estimators': [100, 200, 300],
+    'max_depth': [5, 10, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'max_features': ['auto', 'sqrt'],
+    'bootstrap': [True, False]
+}
+
+rf_model = RandomForestClassifier(random_state=42)
+random_search = RandomizedSearchCV(estimator=rf_model, param_distributions=param_dist,
+                                   n_iter=100, cv=3, verbose=1, random_state=42, n_jobs=-1)
+random_search.fit(X_train_rfe, y_train_resampled)
+
+# Get the best model
+best_model = random_search.best_estimator_
+
+# Step 7: Make predictions and evaluate
+y_pred = best_model.predict(X_test_rfe)
+accuracy = accuracy_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+classification_rep = classification_report(y_test, y_pred)
+
+# Step 8: Print evaluation results
+print(f'Accuracy: {accuracy * 100:.2f}%')
+print('Confusion Matrix:')
+print(conf_matrix)
+print('Classification Report:')
+print(classification_rep)
+
+# Step 9: Feature Importance
+feature_importance = best_model.feature_importances_
+selected_features = X.columns[rfe.support_]
+feature_importance_df = pd.DataFrame({'feature': selected_features, 'importance': feature_importance})
+feature_importance_df = feature_importance_df.sort_values('importance', ascending=False)
+
+# Print top 5 features
+print('Top 5 Important Features:')
+print(feature_importance_df.head())
+
