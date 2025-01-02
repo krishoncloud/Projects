@@ -1,0 +1,106 @@
+import nltk
+# nltk.download('movie_reviews')
+# from nltk.corpus import movie_reviews
+# from nltk.corpus import stopwords
+# nltk.download('stopwords')
+# import string
+# import random
+# #Environment set up
+# documents = [(list(movie_reviews.words(fileid)),category)
+#             for category in movie_reviews.categories()
+#             for fileid in movie_reviews.fileids(category)]
+# random.shuffle(documents)
+import os
+import string
+import random
+
+# Define the path to the extracted movie_reviews dataset
+data_dir = '/Users/charumalik/Downloads/archive/movie_reviews/movie_reviews'  # Replace with your actual path
+
+# Define the directories for positive and negative reviews
+positive_dir = os.path.join(data_dir, 'pos')
+negative_dir = os.path.join(data_dir, 'neg')
+
+# Initialize the list to hold the documents and categories
+documents = []
+
+# Load and process positive reviews
+for file_name in os.listdir(positive_dir):
+   file_path = os.path.join(positive_dir, file_name)
+   with open(file_path, 'r', encoding='utf-8') as file:
+       words = file.read().split()
+       documents.append((words, 'pos'))
+
+# Load and process negative reviews
+for file_name in os.listdir(negative_dir):
+   file_path = os.path.join(negative_dir, file_name)
+   with open(file_path, 'r', encoding='utf-8') as file:
+       words = file.read().split()
+       documents.append((words, 'neg'))
+
+# Shuffle the documents to mix positive and negative reviews
+random.shuffle(documents)
+
+# Pre-Processing
+stopwords_folder = '/Users/charumalik/Downloads/stopwords'
+english_stopwords_file = os.path.join(stopwords_folder, 'english')
+with open(english_stopwords_file, 'r') as file:
+   stop_words = file.read().splitlines()
+#stop_words = set(stopwords.words('english'))
+def preprocess_words(words):
+   # Lowercase and remove stop words and punctuation (filter by stop words and punc.)
+   return [word.lower() for word in words if word.lower() not in stop_words and word.lower() not in string.punctuation]
+# Preprocesses all documents
+documents = [(preprocess_words(doc),category) for doc, category in documents]
+from collections import defaultdict
+
+# Get all words
+all_words = [word for doc, _ in documents for word in doc]
+
+# Get 2000 most common words
+all_words_freq = nltk.FreqDist(all_words)
+words_features = list(all_words_freq.keys())[:2000]
+def document_features(document):
+   document_words = set(document)
+   features = {}
+   for word in words_features:
+       features[f'contains({word})'] = (word in document_words)
+   return features
+
+# Convert documents to feature sets
+featuresets = [(document_features(doc), category) for doc, category in documents]
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.pipeline import Pipeline
+
+# Convert to feature vectors
+train_set, test_set = train_test_split(featuresets, test_size=0.25, random_state=42)
+
+train_X, train_y = zip(*train_set)
+test_X, test_y = zip(*test_set)
+
+# Train a Naive Bayes classifier
+vectorizer = CountVectorizer()
+classifier = MultinomialNB()
+
+pipeline = Pipeline([
+   ('vectorizer', vectorizer),
+   ('classifier', classifier)
+])
+pipeline.fit([' '.join(doc) for doc in train_X], train_y)
+
+# Model Evaluation
+from sklearn.metrics import accuracy_score, classification_report
+predictions = pipeline.predict([' '.join(doc) for doc in test_X])
+print(f'Accuracy: {accuracy_score(test_y, predictions):.2f}')
+print(classification_report(test_y, predictions))
+
+# Making Predictions
+new_reviews = [
+   "i LOVED it! I really enjoyed it.",
+   "I did not like this movie at all. It was terrible."]
+
+predictions = pipeline.predict(new_reviews)
+for review, sentiment in zip(new_reviews, predictions):
+   print(f'Review: {review}\nSentiment: {sentiment}\n')
