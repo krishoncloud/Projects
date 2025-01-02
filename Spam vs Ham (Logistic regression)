@@ -1,0 +1,45 @@
+
+Spam vs Ham (Logistic regression)
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer      
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.model_selection import GridSearchCV
+
+# Function to load stop words from a file
+def load_stopwords(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return set(file.read().splitlines())
+
+# 1. Load the Dataset
+df = pd.read_csv('/Users/krishmalik/Downloads/Task_1.csv')
+
+# 2. Check class balance
+print(df['labels'].value_counts())
+
+# 3. Load stop words from your local files
+english_stopwords = load_stopwords('/Users/krishmalik/Downloads/stopwords/english')
+french_stopwords = load_stopwords('/Users/krishmalik/Downloads/stopwords/french')
+german_stopwords = load_stopwords('/Users/krishmalik/Downloads/stopwords/german')
+
+# Combine all stop words into one set
+stop_words = list(english_stopwords | french_stopwords | german_stopwords)
+
+# 4. Feature Extraction using TfidfVectorizer with custom stop words
+tfidf = TfidfVectorizer(stop_words=stop_words)
+
+# Assuming text data is in 'text' column
+X = tfidf.fit_transform(df['text'])
+y = df['labels']
+
+# 5. Split the data into train and test sets (80% train, 20% test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 6. Train Logistic Regression Model
+lr = LogisticRegression(max_iter=1000)
+lr.fit(X_train, y_train)
+
+# 7. Model Evaluation
+y_pred = lr.predict(X_test)
